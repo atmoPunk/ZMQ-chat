@@ -1,4 +1,6 @@
 #include <iostream>
+#include <signal.h>
+#include <termios.h>
 #include <unistd.h>
 #include <zmq.h>
 #include <cstdlib>
@@ -6,6 +8,11 @@
 #include <string>
 #include <cstring>
 #include <sys/types.h>
+
+termios orig_termios;
+void* context;
+void* pushSocket;
+void* subSocket;
 
 struct MessageData {
     char Name[80];
@@ -79,16 +86,36 @@ char* Login() {
     }
 }
 
+void disableRawMode() {
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+}
+
+void enableRawMode() {
+    tcgetattr(STDIN_FILENO, &orig_termios);
+    atexit(disableRawMode);
+    termios raw = orig_termios;
+    raw.c_iflag &= ~(IXON);
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
+}
+
+void destrCtx() {
+    zmq_close(subSocket);
+    zmq_close(pushSocket);
+    zmq_ctx_destroy(context);
+}
+
 int main(int argc, char** argv) {
+    atexit(destrCtx);
     char* Name = Login();
-    void* context = zmq_ctx_new();
+    std::cout << "Entered as: " << Name << std::endl;
+    context = zmq_ctx_new();
     pid_t display;
     if((display = fork()) == -1) {
         std::perror("Fork failed");
         return 1;
     }
     if(display == 0) {
-        void* subSocket = zmq_socket(context, ZMQ_SUB);
+        subSocket = zmq_socket(context, ZMQ_SUB);
         zmq_connect(subSocket, "tcp://localhost:4042");
         zmq_setsockopt(subSocket, ZMQ_SUBSCRIBE, "", 0);
         while(1) {
@@ -96,16 +123,34 @@ int main(int argc, char** argv) {
             zmq_msg_init(&message);
             zmq_msg_recv(&message, subSocket, 0);
             MessageData *m = (MessageData*) zmq_msg_data(&message);
-            std::cout << m->Name << ": " << m->Message << std::endl;
+            if(strcmp(m->Name, Name) != 0) {
+                printf("\33[2K\r");
+                std::cout << m->Name << ": " << m->Message << std::endl;
+                std::cout << Name << ": ";
+                std::cout.flush();
+            }
             zmq_msg_close(&message);
         }
     } else {
-        void* pushSocket = zmq_socket(context, ZMQ_PUSH);
+        pushSocket = zmq_socket(context, ZMQ_PUSH);
         zmq_connect(pushSocket, "tcp://localhost:4041");
+        int c = 0;
+        c = getchar();
         while(1) {
+            enableRawMode();
             MessageData message;
             strcpy(message.Name, Name);
-            std::cin >> message.Message; //TODO: write normal input with spaces;
+            std::cout << Name << ": ";
+            int counter = 0;
+            do {
+                c = getchar();
+                if(c == 17) {
+                    kill(display, SIGKILL);
+                    _exit(0);
+                }
+                message.Message[counter++] = c;
+            } while(c != '\n');
+            message.Message[counter-1] = 0;
             zmq_msg_t zmqMessage;
             zmq_msg_init_size(&zmqMessage, sizeof(message));
             memcpy(zmq_msg_data(&zmqMessage), &message, sizeof(message));

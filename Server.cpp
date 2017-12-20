@@ -12,6 +12,13 @@
 
 pid_t Print;
 
+void* context;
+void* pubSocket;
+void* pullSocket;
+
+void* ctx;
+void* resSocket;
+
 struct MessageData {
     char Name[80];
     char Message[256];
@@ -29,13 +36,13 @@ struct PassCheck {
 
 void* checkLogins(void* ptr) {
     int passfile;
-    passfile = open("./logins", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+    passfile = open("./logins.log", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
     if(passfile == -1) {
         std::perror("Can't open file");
         return NULL;
     }
-    void* ctx = zmq_ctx_new();
-    void* resSocket = zmq_socket(ctx, ZMQ_REP);
+    ctx = zmq_ctx_new();
+    resSocket = zmq_socket(ctx, ZMQ_REP);
     zmq_bind(resSocket, "tcp://*:4043");
     while(1) {
         zmq_msg_t passMsg;
@@ -84,7 +91,7 @@ void* checkLogins(void* ptr) {
                 std::perror("Cant send passcheck");
                 return NULL;
             } else {
-                std::cout << "Passcheck sent" << std::endl;
+                std::cout << "PasscheckIN sent" << std::endl;
             }
             zmq_msg_close(&reply);
         } else {
@@ -94,7 +101,6 @@ void* checkLogins(void* ptr) {
             int found = 0;
             int r = 0;
             while((r = read(passfile, fname, 80)) != 0) {
-                std::cout << "read: " << r << std::endl;
                 if(r == -1) {
                     std::perror("Cant read file");
                 }
@@ -118,7 +124,12 @@ void* checkLogins(void* ptr) {
             zmq_msg_t reply;
             zmq_msg_init_size(&reply, sizeof(PassCheck));
             memcpy(zmq_msg_data(&reply), &check, sizeof(PassCheck));
-            zmq_msg_send(&reply, resSocket, 0);
+            if(zmq_msg_send(&reply, resSocket, 0) == -1) {
+                std::perror("Can't send passcheck");
+                return NULL;
+            } else {
+                std::cout << "PasscheckUP sent" << std::endl;
+            }
             zmq_msg_close(&reply);
         }
     }
@@ -138,13 +149,22 @@ void* chexit(void* ptr) {
     return NULL;
 }
 
+void destrCtx() {
+    zmq_close(pubSocket);
+    zmq_close(pullSocket);
+    zmq_ctx_destroy(context);
+    zmq_close(resSocket);
+    zmq_ctx_destroy(ctx);
+}
+
 int main(int argc, char** argv) {
+    atexit(destrCtx);
     pthread_t passCheck;
     if(pthread_create(&passCheck, 0, checkLogins, NULL)) {
         std::perror("Can't create thread");
         return 4;
     }
-    void* context = zmq_ctx_new();
+    context = zmq_ctx_new();
     int fd[2];
     pipe(fd);
     if((Print = fork()) == -1) {
@@ -152,7 +172,7 @@ int main(int argc, char** argv) {
         return 1;
     }
     if(Print == 0) {
-        void* pubSocket = zmq_socket(context, ZMQ_PUB);
+        pubSocket = zmq_socket(context, ZMQ_PUB);
         zmq_bind(pubSocket, "tcp://*:4042");
         while(1) {
             size_t mesSize;
@@ -176,7 +196,7 @@ int main(int argc, char** argv) {
         std::cout << "Print: " << Print << std::endl;
         pthread_t checkExit;
         pthread_create(&checkExit, 0, chexit, NULL);
-        void* pullSocket = zmq_socket(context, ZMQ_PULL);
+        pullSocket = zmq_socket(context, ZMQ_PULL);
         zmq_bind(pullSocket, "tcp://*:4041");
         while(1) {
             zmq_msg_t message;
