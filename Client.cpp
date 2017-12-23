@@ -129,7 +129,9 @@ int main(int argc, char** argv) {
     if(display == 0) {
         subSocket = zmq_socket(context, ZMQ_SUB);
         zmq_connect(subSocket, "tcp://localhost:4042");
-        zmq_setsockopt(subSocket, ZMQ_SUBSCRIBE, "gr", 2);
+        if(argc == 1) {
+            zmq_setsockopt(subSocket, ZMQ_SUBSCRIBE, "gr", 2);
+        }
         zmq_setsockopt(subSocket, ZMQ_SUBSCRIBE, Name, strlen(Name));
         while(1) {
             char theme[80];
@@ -140,7 +142,7 @@ int main(int argc, char** argv) {
             MessageData *m = (MessageData*) zmq_msg_data(&message);
             if(strcmp(m->Name, Name) != 0) {
                 printf("\33[2K\r");
-                if(th != 2) {
+                if(th != 2 && argc == 1) {
                     std::cout << "!!! ";
                 }
                 std::cout << m->Name << ": " << m->Message << std::endl;
@@ -159,18 +161,23 @@ int main(int argc, char** argv) {
             MessageData message;
             strcpy(message.Name, Name);
             char addr[] = "gr\0";
-            strcpy(message.Address, addr);
+            if(argc == 1) {
+                strcpy(message.Address, addr);
+            } else {
+                strcpy(message.Address, argv[1]);
+            }
             std::cout << Name << ": ";
             int counter = 0;
-            int counterAdr = 0;
-            int entAddr = 0;
             do {
                 c = getchar();
-                if(c == '/' && counter == 0 && entAddr == 0) {
+                if(c == '/' && counter == 0 && argc == 1) {
                     int cNext = getchar();
                     if(cNext == 'w') {
                         cNext = getchar();
                         inpAddr(message.Address);
+                    } else {
+                        message.Message[counter++] = '/';
+                        message.Message[counter++] = cNext;
                     }
                 } else {
                     message.Message[counter++] = c;
