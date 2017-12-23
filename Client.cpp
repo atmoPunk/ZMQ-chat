@@ -17,6 +17,7 @@ void* subSocket;
 struct MessageData {
     char Name[80];
     char Message[256];
+    char Address[80];
 };
 
 struct PassData {
@@ -104,6 +105,17 @@ void destrCtx() {
     zmq_ctx_destroy(context);
 }
 
+void inpAddr(char* addr) {
+    char c = getchar();
+    int idx = 0;
+    do {
+        addr[idx++] = c;
+        c = getchar();
+    } while(c != ' ');
+    addr[idx] = 0;
+    return;
+}
+
 int main(int argc, char** argv) {
     atexit(destrCtx);
     char* Name = Login();
@@ -117,14 +129,20 @@ int main(int argc, char** argv) {
     if(display == 0) {
         subSocket = zmq_socket(context, ZMQ_SUB);
         zmq_connect(subSocket, "tcp://localhost:4042");
-        zmq_setsockopt(subSocket, ZMQ_SUBSCRIBE, "", 0);
+        zmq_setsockopt(subSocket, ZMQ_SUBSCRIBE, "gr", 2);
+        zmq_setsockopt(subSocket, ZMQ_SUBSCRIBE, Name, strlen(Name));
         while(1) {
+            char theme[80];
             zmq_msg_t message;
             zmq_msg_init(&message);
+            int th = zmq_recv(subSocket, theme, 3, 0);
             zmq_msg_recv(&message, subSocket, 0);
             MessageData *m = (MessageData*) zmq_msg_data(&message);
             if(strcmp(m->Name, Name) != 0) {
                 printf("\33[2K\r");
+                if(th != 2) {
+                    std::cout << "!!! ";
+                }
                 std::cout << m->Name << ": " << m->Message << std::endl;
                 std::cout << Name << ": ";
                 std::cout.flush();
@@ -140,15 +158,27 @@ int main(int argc, char** argv) {
             enableRawMode();
             MessageData message;
             strcpy(message.Name, Name);
+            char addr[] = "gr\0";
+            strcpy(message.Address, addr);
             std::cout << Name << ": ";
             int counter = 0;
+            int counterAdr = 0;
+            int entAddr = 0;
             do {
                 c = getchar();
+                if(c == '/' && counter == 0 && entAddr == 0) {
+                    int cNext = getchar();
+                    if(cNext == 'w') {
+                        cNext = getchar();
+                        inpAddr(message.Address);
+                    }
+                } else {
+                    message.Message[counter++] = c;
+                }
                 if(c == 17) {
                     kill(display, SIGKILL);
                     _exit(0);
                 }
-                message.Message[counter++] = c;
             } while(c != '\n');
             message.Message[counter-1] = 0;
             zmq_msg_t zmqMessage;

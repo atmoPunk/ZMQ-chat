@@ -22,6 +22,7 @@ void* resSocket;
 struct MessageData {
     char Name[80];
     char Message[256];
+    char Address[80];
 };
 
 struct PassData {
@@ -179,9 +180,12 @@ int main(int argc, char** argv) {
             MessageData* m = (MessageData*) malloc(sizeof(MessageData));
             read(fd[0], m->Name, 80);
             read(fd[0], m->Message, 256);
+            read(fd[0], m->Address, 80);
+            std::cout << "pub addr: " << m->Address << " "  << strlen(m->Address) << std::endl;
             zmq_msg_t message;
             zmq_msg_init_size(&message, sizeof(MessageData));
             memcpy(zmq_msg_data(&message), m, sizeof(MessageData));
+            zmq_send(pubSocket, m->Address, strlen(m->Address), ZMQ_SNDMORE);
             int send = zmq_msg_send(&message, pubSocket, 0);
             if(send == -1) {
                 std::perror("Can't publish message");
@@ -204,9 +208,10 @@ int main(int argc, char** argv) {
             zmq_msg_recv(&message, pullSocket, 0);
             std::cout << "Message recieved" << std::endl;
             MessageData *m = (MessageData*) zmq_msg_data(&message);
-            std::cout << m->Name << " " << m->Message << std::endl;
+            std::cout << m->Name << " " << m->Message << " " << m->Address << std::endl;
             write(fd[1], m->Name, 80);
             write(fd[1], m->Message, 256);
+            write(fd[1], m->Address, 80);
             zmq_msg_close(&message);
         }
     }
