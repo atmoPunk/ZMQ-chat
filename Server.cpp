@@ -182,6 +182,27 @@ int main(int argc, char** argv) {
             read(fd[0], m->Message, 256);
             read(fd[0], m->Address, 80);
             std::cout << "pub addr: " << m->Address << " "  << strlen(m->Address) << std::endl;
+            if(strcmp(m->Address, "gr") != 0) {
+                char histName[160];
+                strcpy(histName, "./.");
+                if(strcmp(m->Name, m->Address) < 0) {
+                    strcat(histName, m->Name);
+                    strcat(histName, m->Address);
+                } else {
+                    strcat(histName, m->Address);
+                    strcat(histName, m->Name);
+                }
+                strcat(histName, ".log");
+                int histfile;
+                histfile = open(histName, O_CREAT | O_WRONLY | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+                write(histfile, m->Name, strlen(m->Name));
+                write(histfile, " ", 1);
+                write(histfile, m->Message, strlen(m->Message));
+                write(histfile, " ", 1);
+                write(histfile, m->Address, strlen(m->Address));
+                write(histfile, "\n", 1);
+                close(histfile);
+            }
             zmq_msg_t message;
             zmq_msg_init_size(&message, sizeof(MessageData));
             memcpy(zmq_msg_data(&message), m, sizeof(MessageData));
