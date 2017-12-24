@@ -26,6 +26,10 @@ struct PassData {
     char Password[256];
 };
 
+struct HistReq {
+    char Names[160];
+};
+
 struct PassCheck {
     int result; // 0 - OK, 1 - wrong pass, 2 - not found;
 };
@@ -116,11 +120,59 @@ void inpAddr(char* addr) {
     return;
 }
 
+void getHistory(char* Name, char* Other) {
+    void* histCtx = zmq_ctx_new();
+    void* pushSock = zmq_socket(histCtx, ZMQ_PUSH);
+    zmq_connect(pushSock, "tcp://localhost:4044");
+    char whisp[160];
+    if(strcmp(Name, Other) < 0) {
+        strcpy(whisp, Name);
+        strcat(whisp, Other);
+    } else {
+        strcpy(whisp, Other);
+        strcat(whisp, Name);
+    }
+    HistReq hr;
+    strcpy(hr.Names, whisp);
+    zmq_msg_t messageReq;
+    zmq_msg_init_size(&messageReq, sizeof(HistReq));
+    memcpy(zmq_msg_data(&messageReq), &hr, sizeof(HistReq));
+    zmq_msg_send(&messageReq, pushSock, 0);
+    zmq_msg_close(&messageReq);
+    zmq_close(pushSock);
+    void* subSock = zmq_socket(histCtx, ZMQ_SUB);
+    char lWhisp[160];
+    strcpy(lWhisp, " lst");
+    strcat(lWhisp, whisp);
+    zmq_connect(subSock, "tcp://localhost:4045");
+    zmq_setsockopt(subSock, ZMQ_SUBSCRIBE, whisp, strlen(whisp));
+    zmq_setsockopt(subSock, ZMQ_SUBSCRIBE, lWhisp, strlen(lWhisp));
+    while(1) {
+        zmq_msg_t message;
+        char filter[32];
+        zmq_recv(subSock, filter, 4, 0);
+        zmq_msg_init(&message);
+        zmq_msg_recv(&message, subSock, 0);
+        MessageData* m = (MessageData*) zmq_msg_data(&message);
+        std::cout << m->Name << ": " << m->Message << std::endl;
+        zmq_msg_close(&message);
+        if(filter[0] == ' ') {
+            break;
+        }
+    }
+    zmq_close(subSock);
+    zmq_ctx_destroy(histCtx);
+    std::cout << " === History ended === " << std::endl;
+}
+
 int main(int argc, char** argv) {
     atexit(destrCtx);
     char* Name = Login();
     std::cout << "Entered as: " << Name << std::endl;
     context = zmq_ctx_new();
+    if(argc == 2) {
+        getHistory(Name, argv[1]);
+    }
     pid_t display;
     if((display = fork()) == -1) {
         std::perror("Fork failed");

@@ -7,6 +7,7 @@
 #include <string>
 #include <cstring>
 #include <sys/types.h>
+#include <sys/file.h>
 #include <pthread.h>
 #include <fcntl.h>
 
@@ -18,6 +19,10 @@ void* pullSocket;
 
 void* ctx;
 void* resSocket;
+
+void* histCtx;
+void* histSocket;
+void* histPubSock;
 
 struct MessageData {
     char Name[80];
@@ -34,6 +39,69 @@ struct PassData {
 struct PassCheck {
     int result; // 0 - OK, 1 - wrong pass, 2 - not found;
 };
+
+struct HistReq {
+    char Names[160];
+};
+
+void* printHist(void* ptr) {
+    histCtx = zmq_ctx_new();
+    histSocket = zmq_socket(histCtx, ZMQ_PULL);
+    zmq_bind(histSocket, "tcp://*:4044");
+    histPubSock = zmq_socket(histCtx, ZMQ_PUB);
+    zmq_bind(histPubSock, "tcp://*:4045");
+    while(1) {
+        zmq_msg_t histReq;
+        zmq_msg_init(&histReq);
+        zmq_msg_recv(&histReq, histSocket, 0);
+        HistReq* hr = (HistReq*) zmq_msg_data(&histReq);
+        char whisp[160];
+        strcpy(whisp, hr->Names);
+        char filename[160];
+        strcpy(filename, "./.");
+        strcat(filename, hr->Names);
+        strcat(filename, ".log");
+        zmq_msg_close(&histReq);
+        int histfile;
+        histfile = open(filename, O_CREAT | O_RDONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+        flock(histfile, LOCK_EX);
+        char Name[80];
+        char Message[256];
+        char Address[80];
+        int readHist;
+        int lastMsg = 0;
+        while((readHist = read(histfile, Name, 80)) != 0) {
+            read(histfile, Message, 256);
+            read(histfile, Address, 80);
+            char check;
+            int r = read(histfile, &check, 1);
+            if(r != 0) {
+                lseek(histfile, -1, SEEK_CUR);
+            } else {
+                lastMsg = 1;
+            }
+            MessageData md;
+            strcpy(md.Name, Name);
+            strcpy(md.Message, Message);
+            strcpy(md.Address, Address);
+            zmq_msg_t histRes;
+            zmq_msg_init_size(&histRes, sizeof(MessageData));
+            memcpy(zmq_msg_data(&histRes), &md, sizeof(MessageData));
+            if(lastMsg == 0) {
+                zmq_send(histPubSock, whisp, strlen(whisp), ZMQ_SNDMORE);
+            } else {
+                char lWhisp[160];
+                strcpy(lWhisp, " lst");
+                strcat(lWhisp, whisp);
+                zmq_send(histPubSock, lWhisp, strlen(lWhisp), ZMQ_SNDMORE);
+            }
+            zmq_msg_send(&histRes, histPubSock, 0);
+            zmq_msg_close(&histRes);
+        }
+        flock(histfile, LOCK_UN);
+        close(histfile);
+    }
+}
 
 void* checkLogins(void* ptr) {
     int passfile;
@@ -156,6 +224,9 @@ void destrCtx() {
     zmq_ctx_destroy(context);
     zmq_close(resSocket);
     zmq_ctx_destroy(ctx);
+    zmq_close(histSocket);
+    zmq_close(histPubSock);
+    zmq_ctx_destroy(histCtx);
 }
 
 int main(int argc, char** argv) {
@@ -165,6 +236,8 @@ int main(int argc, char** argv) {
         std::perror("Can't create thread");
         return 4;
     }
+    pthread_t sendHist;
+    pthread_create(&sendHist, 0, printHist, NULL);
     context = zmq_ctx_new();
     int fd[2];
     pipe(fd);
@@ -195,12 +268,18 @@ int main(int argc, char** argv) {
                 strcat(histName, ".log");
                 int histfile;
                 histfile = open(histName, O_CREAT | O_WRONLY | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
-                write(histfile, m->Name, strlen(m->Name));
+                flock(histfile, LOCK_EX);
+                /*  write(histfile, m->Name, strlen(m->Name));
                 write(histfile, " ", 1);
                 write(histfile, m->Message, strlen(m->Message));
                 write(histfile, " ", 1);
                 write(histfile, m->Address, strlen(m->Address));
                 write(histfile, "\n", 1);
+                */
+                write(histfile, m->Name, 80);
+                write(histfile, m->Message, 256);
+                write(histfile, m->Address, 80);
+                flock(histfile, LOCK_UN);
                 close(histfile);
             }
             zmq_msg_t message;
