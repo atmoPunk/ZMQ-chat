@@ -9,10 +9,19 @@
 #include <cstring>
 #include <sys/types.h>
 
+#define ANSI_COLOR_RED "\x1b[31m"
+#define ANSI_COLOR_GREEN "\x1b[32m"
+#define ANSI_COLOR_BLUE "\x1b[34m"
+#define ANSI_COLOR_YELLOW "\x1b[33m"
+#define ANSI_COLOR_RESET "\x1b[0m"
+
 termios orig_termios;
+
 void* context;
 void* pushSocket;
 void* subSocket;
+
+const int LINGER_VAL = 0;
 
 struct MessageData {
     char Name[80];
@@ -46,6 +55,7 @@ char* Login() {
     std::cin >> Password;
     void* ctx = zmq_ctx_new();
     void* reqSocket = zmq_socket(ctx, ZMQ_REQ);
+    zmq_setsockopt(reqSocket, ZMQ_LINGER, &LINGER_VAL, sizeof(LINGER_VAL));
     zmq_connect(reqSocket, "tcp://localhost:4043");
     PassData pd;
     pd.action = act;
@@ -99,6 +109,7 @@ void enableRawMode() {
     tcgetattr(STDIN_FILENO, &orig_termios);
     atexit(disableRawMode);
     termios raw = orig_termios;
+    raw.c_lflag &= ~(ICANON);
     raw.c_iflag &= ~(IXON);
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
@@ -162,13 +173,14 @@ void getHistory(char* Name, char* Other) {
     }
     zmq_close(subSock);
     zmq_ctx_destroy(histCtx);
-    std::cout << " === History ended === " << std::endl;
+    printf(ANSI_COLOR_RED " === History ended === \n" ANSI_COLOR_RESET);
 }
 
 int main(int argc, char** argv) {
     atexit(destrCtx);
     char* Name = Login();
-    std::cout << "Entered as: " << Name << std::endl;
+    printf(ANSI_COLOR_RED "Entered as: %s\n", Name);
+    printf(ANSI_COLOR_RESET);
     context = zmq_ctx_new();
     if(argc == 2) {
         getHistory(Name, argv[1]);
@@ -180,6 +192,7 @@ int main(int argc, char** argv) {
     }
     if(display == 0) {
         subSocket = zmq_socket(context, ZMQ_SUB);
+        zmq_setsockopt(subSocket, ZMQ_LINGER, &LINGER_VAL, sizeof(LINGER_VAL));
         zmq_connect(subSocket, "tcp://localhost:4042");
         if(argc == 1) {
             zmq_setsockopt(subSocket, ZMQ_SUBSCRIBE, "gr", 2);
@@ -195,9 +208,10 @@ int main(int argc, char** argv) {
             if(strcmp(m->Name, Name) != 0) {
                 printf("\33[2K\r");
                 if(th != 2 && argc == 1) {
-                    std::cout << "!!! ";
+                    printf(ANSI_COLOR_GREEN);
                 }
                 std::cout << m->Name << ": " << m->Message << std::endl;
+                printf(ANSI_COLOR_RESET);
                 std::cout << Name << ": ";
                 std::cout.flush();
             }
@@ -205,6 +219,7 @@ int main(int argc, char** argv) {
         }
     } else {
         pushSocket = zmq_socket(context, ZMQ_PUSH);
+        zmq_setsockopt(pushSocket, ZMQ_LINGER, &LINGER_VAL, sizeof(LINGER_VAL));
         zmq_connect(pushSocket, "tcp://localhost:4041");
         int c = 0;
         c = getchar();
@@ -235,8 +250,9 @@ int main(int argc, char** argv) {
                     message.Message[counter++] = c;
                 }
                 if(c == 17) {
+                    std::cout << std::endl;
                     kill(display, SIGKILL);
-                    _exit(0);
+                    exit(0);
                 }
             } while(c != '\n');
             message.Message[counter-1] = 0;

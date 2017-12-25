@@ -17,12 +17,12 @@ void* context;
 void* pubSocket;
 void* pullSocket;
 
-void* ctx;
 void* resSocket;
 
-void* histCtx;
 void* histSocket;
 void* histPubSock;
+
+const int LINGER_VAL = 0;
 
 struct MessageData {
     char Name[80];
@@ -45,10 +45,11 @@ struct HistReq {
 };
 
 void* printHist(void* ptr) {
-    histCtx = zmq_ctx_new();
-    histSocket = zmq_socket(histCtx, ZMQ_PULL);
+    histSocket = zmq_socket(context, ZMQ_PULL);
+    zmq_setsockopt(histSocket, ZMQ_LINGER, &LINGER_VAL, sizeof(LINGER_VAL));
     zmq_bind(histSocket, "tcp://*:4044");
-    histPubSock = zmq_socket(histCtx, ZMQ_PUB);
+    histPubSock = zmq_socket(context, ZMQ_PUB);
+    zmq_setsockopt(histPubSock, ZMQ_LINGER, &LINGER_VAL, sizeof(LINGER_VAL));
     zmq_bind(histPubSock, "tcp://*:4045");
     while(1) {
         zmq_msg_t histReq;
@@ -110,8 +111,8 @@ void* checkLogins(void* ptr) {
         std::perror("Can't open file");
         return NULL;
     }
-    ctx = zmq_ctx_new();
-    resSocket = zmq_socket(ctx, ZMQ_REP);
+    resSocket = zmq_socket(context, ZMQ_REP);
+    zmq_setsockopt(resSocket, ZMQ_LINGER, &LINGER_VAL, sizeof(LINGER_VAL));
     zmq_bind(resSocket, "tcp://*:4043");
     while(1) {
         zmq_msg_t passMsg;
@@ -212,25 +213,28 @@ void* chexit(void* ptr) {
         if(ch == 'q') {
             std::cout << "PrintExit: " << Print << std::endl;
             kill(Print, SIGKILL);
-            _exit(0);
+            exit(0);
         }
     }
     return NULL;
 }
 
 void destrCtx() {
-    zmq_close(pubSocket);
+    std::cout << "Closing main sockets" << std::endl;
     zmq_close(pullSocket);
-    zmq_ctx_destroy(context);
+    zmq_close(pubSocket);
+    std::cout << "Closing password socket" << std::endl;
     zmq_close(resSocket);
-    zmq_ctx_destroy(ctx);
+    std::cout << "Closing history sockets" << std::endl;
     zmq_close(histSocket);
     zmq_close(histPubSock);
-    zmq_ctx_destroy(histCtx);
+    //std::cout << "Closing main context" << std::endl;
+    // Something wrong happens here. The same issue is on github.com/zeromq/libzmq/issues/2343, but no soultion. So i just don't close the context;
+    //zmq_ctx_destroy(context);
+    std::cout << "ALL CLOSED" << std::endl;
 }
 
 int main(int argc, char** argv) {
-    atexit(destrCtx);
     pthread_t passCheck;
     if(pthread_create(&passCheck, 0, checkLogins, NULL)) {
         std::perror("Can't create thread");
@@ -247,6 +251,7 @@ int main(int argc, char** argv) {
     }
     if(Print == 0) {
         pubSocket = zmq_socket(context, ZMQ_PUB);
+        zmq_setsockopt(pubSocket, ZMQ_LINGER, &LINGER_VAL, sizeof(LINGER_VAL));
         zmq_bind(pubSocket, "tcp://*:4042");
         while(1) {
             size_t mesSize;
@@ -269,13 +274,6 @@ int main(int argc, char** argv) {
                 int histfile;
                 histfile = open(histName, O_CREAT | O_WRONLY | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
                 flock(histfile, LOCK_EX);
-                /*  write(histfile, m->Name, strlen(m->Name));
-                write(histfile, " ", 1);
-                write(histfile, m->Message, strlen(m->Message));
-                write(histfile, " ", 1);
-                write(histfile, m->Address, strlen(m->Address));
-                write(histfile, "\n", 1);
-                */
                 write(histfile, m->Name, 80);
                 write(histfile, m->Message, 256);
                 write(histfile, m->Address, 80);
@@ -297,10 +295,12 @@ int main(int argc, char** argv) {
             free(m);
         }
     } else {
+        atexit(destrCtx);
         std::cout << "Print: " << Print << std::endl;
         pthread_t checkExit;
         pthread_create(&checkExit, 0, chexit, NULL);
         pullSocket = zmq_socket(context, ZMQ_PULL);
+        zmq_setsockopt(pullSocket, ZMQ_LINGER, &LINGER_VAL, sizeof(LINGER_VAL));
         zmq_bind(pullSocket, "tcp://*:4041");
         while(1) {
             zmq_msg_t message;
