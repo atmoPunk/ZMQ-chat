@@ -9,13 +9,13 @@
 #include <cstring>
 #include <sys/types.h>
 
-#define ANSI_COLOR_RED "\x1b[31m"
+#define ANSI_COLOR_RED "\x1b[31m" // Escape-sequences для изменения цвета текста в терминале
 #define ANSI_COLOR_GREEN "\x1b[32m"
 #define ANSI_COLOR_BLUE "\x1b[34m"
 #define ANSI_COLOR_YELLOW "\x1b[33m"
 #define ANSI_COLOR_RESET "\x1b[0m"
 
-termios orig_termios;
+termios orig_termios; // Оригинальное состояние терминала
 
 void* context;
 void* pushSocket;
@@ -47,7 +47,7 @@ char* Login() {
     std::cout << "0 - sign in, 1 - sign up: ";
     int act;
     std::cin >> act;
-    char* Name = (char*) malloc(80);
+    char Name[80];
     char Password[256];
     std::cout << "Please, enter your name: ";
     std::cin >> Name;
@@ -77,7 +77,7 @@ char* Login() {
             zmq_ctx_destroy(ctx);
             return Name;
         } else {
-            zmq_close(reqSocket);
+            zmq_close(reqSocket); // Закрываем сокет и контекст, так как при запуске мы снова их откроем.
             zmq_ctx_destroy(ctx);
             return Login();
         }
@@ -102,15 +102,15 @@ char* Login() {
 }
 
 void disableRawMode() {
-    tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios);
+    tcsetattr(STDIN_FILENO, TCSAFLUSH, &orig_termios); // Возвращем оригинальное состояние терминала
 }
 
 void enableRawMode() {
-    tcgetattr(STDIN_FILENO, &orig_termios);
-    atexit(disableRawMode);
+    tcgetattr(STDIN_FILENO, &orig_termios); // Запоминаем оригинальное состояние терминала
+    atexit(disableRawMode); // При выходе возвращаем
     termios raw = orig_termios;
-    raw.c_lflag &= ~(ICANON);
-    raw.c_iflag &= ~(IXON);
+    raw.c_lflag &= ~(ICANON); // Отключаем канонический режим
+    raw.c_iflag &= ~(IXON); // Отключаем Ctrl-q Ctrl-s
     tcsetattr(STDIN_FILENO, TCSAFLUSH, &raw);
 }
 
@@ -156,8 +156,8 @@ void getHistory(char* Name, char* Other) {
     strcpy(lWhisp, " lst");
     strcat(lWhisp, whisp);
     zmq_connect(subSock, "tcp://localhost:4045");
-    zmq_setsockopt(subSock, ZMQ_SUBSCRIBE, whisp, strlen(whisp));
-    zmq_setsockopt(subSock, ZMQ_SUBSCRIBE, lWhisp, strlen(lWhisp));
+    zmq_setsockopt(subSock, ZMQ_SUBSCRIBE, whisp, strlen(whisp)); // Подписываемся на исторюю
+    zmq_setsockopt(subSock, ZMQ_SUBSCRIBE, lWhisp, strlen(lWhisp)); // Для проверки последнее ли сообщение
     while(1) {
         zmq_msg_t message;
         char filter[32];
@@ -195,9 +195,9 @@ int main(int argc, char** argv) {
         zmq_setsockopt(subSocket, ZMQ_LINGER, &LINGER_VAL, sizeof(LINGER_VAL));
         zmq_connect(subSocket, "tcp://localhost:4042");
         if(argc == 1) {
-            zmq_setsockopt(subSocket, ZMQ_SUBSCRIBE, "gr", 2);
+            zmq_setsockopt(subSocket, ZMQ_SUBSCRIBE, "gr", 2); // Подписываемся на групповую рассылку
         }
-        zmq_setsockopt(subSocket, ZMQ_SUBSCRIBE, Name, strlen(Name));
+        zmq_setsockopt(subSocket, ZMQ_SUBSCRIBE, Name, strlen(Name)); // Подписываемся на личные сообщения
         while(1) {
             char theme[80];
             zmq_msg_t message;
@@ -227,20 +227,20 @@ int main(int argc, char** argv) {
             enableRawMode();
             MessageData message;
             strcpy(message.Name, Name);
-            char addr[] = "gr\0";
+            char addr[] = "gr\0"; // По умолчанию пишем в группу
             if(argc == 1) {
                 strcpy(message.Address, addr);
             } else {
-                strcpy(message.Address, argv[1]);
+                strcpy(message.Address, argv[1]); // Или личное сообщение
             }
             std::cout << Name << ": ";
             int counter = 0;
             do {
                 c = getchar();
-                if(c == '/' && counter == 0 && argc == 1) {
+                if(c == '/' && counter == 0 && argc == 1) { 
                     int cNext = getchar();
-                    if(cNext == 'w') {
-                        cNext = getchar();
+                    if(cNext == 'w') { // Если считали /w, то считываем имя адресата
+                        cNext = getchar(); // Пропускаем пробел
                         inpAddr(message.Address);
                     } else {
                         message.Message[counter++] = '/';
