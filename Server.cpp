@@ -45,37 +45,37 @@ struct HistReq {
 };
 
 void* printHist(void* ptr) {
-    histSocket = zmq_socket(context, ZMQ_PULL); // открываем новый сокет для принятия запросов
-    zmq_setsockopt(histSocket, ZMQ_LINGER, &LINGER_VAL, sizeof(LINGER_VAL)); // ставим ожидание после закрытия равным нулю
+    histSocket = zmq_socket(context, ZMQ_PULL); // new socket for accepting requests
+    zmq_setsockopt(histSocket, ZMQ_LINGER, &LINGER_VAL, sizeof(LINGER_VAL)); // setting waiting period after closing socket to zero
     zmq_bind(histSocket, "tcp://*:4044"); 
-    histPubSock = zmq_socket(context, ZMQ_PUB); // сокет, для ответа на запрос
+    histPubSock = zmq_socket(context, ZMQ_PUB); // socket for answering requests
     zmq_setsockopt(histPubSock, ZMQ_LINGER, &LINGER_VAL, sizeof(LINGER_VAL));
     zmq_bind(histPubSock, "tcp://*:4045");
     while(1) {
         zmq_msg_t histReq;
         zmq_msg_init(&histReq);
-        zmq_msg_recv(&histReq, histSocket, 0); // принимаем запрос
+        zmq_msg_recv(&histReq, histSocket, 0); // receiving requests
         HistReq* hr = (HistReq*) zmq_msg_data(&histReq);
         char whisp[160];
         strcpy(whisp, hr->Names);
         char filename[160];
-        strcpy(filename, "./."); // Получаем имя файла
+        strcpy(filename, "./."); // Creating filename
         strcat(filename, hr->Names);
         strcat(filename, ".log");
         zmq_msg_close(&histReq);
         int histfile;
-        histfile = open(filename, O_CREAT | O_RDONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH); // открываем файл с историей
-        flock(histfile, LOCK_EX); // Закрываем файл
+        histfile = open(filename, O_CREAT | O_RDONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH); // opening file with history
+        flock(histfile, LOCK_EX); // Locking file
         char Name[80];
         char Message[256];
         char Address[80];
         int readHist;
         int lastMsg = 0;
-        while((readHist = read(histfile, Name, 80)) != 0) { // Считываем все сообщения
+        while((readHist = read(histfile, Name, 80)) != 0) { // Reading all messages
             read(histfile, Message, 256);
             read(histfile, Address, 80);
             char check;
-            int r = read(histfile, &check, 1); // Проверяем не последние ли сообщение
+            int r = read(histfile, &check, 1); // Checking if this message is last one
             if(r != 0) {
                 lseek(histfile, -1, SEEK_CUR);
             } else {
@@ -92,21 +92,21 @@ void* printHist(void* ptr) {
                 zmq_send(histPubSock, whisp, strlen(whisp), ZMQ_SNDMORE);
             } else {
                 char lWhisp[160];
-                strcpy(lWhisp, " lst"); // Пишем в тему, что сообщение последнее
+                strcpy(lWhisp, " lst"); // Writing to the theme that the message is last one
                 strcat(lWhisp, whisp);
                 zmq_send(histPubSock, lWhisp, strlen(lWhisp), ZMQ_SNDMORE);
             }
-            zmq_msg_send(&histRes, histPubSock, 0); // Отправляем сообщение
+            zmq_msg_send(&histRes, histPubSock, 0); // sending answer
             zmq_msg_close(&histRes);
         }
-        flock(histfile, LOCK_UN); // Открываем замок на файле
+        flock(histfile, LOCK_UN); // unlocking file
         close(histfile);
     }
 }
 
 void* checkLogins(void* ptr) {
     int passfile;
-    passfile = open("./logins.log", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH); // открываем файл с логинами и паролями
+    passfile = open("./logins.log", O_CREAT | O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH); // opening file with passwords
     if(passfile == -1) {
         std::perror("Can't open file");
         return NULL;
@@ -117,14 +117,14 @@ void* checkLogins(void* ptr) {
     while(1) {
         zmq_msg_t passMsg;
         zmq_msg_init(&passMsg);
-        zmq_msg_recv(&passMsg, resSocket, 0); // Принимаем сообщение
+        zmq_msg_recv(&passMsg, resSocket, 0); 
         std::cout << "PassCheck recv" << std::endl;
         PassData* pd = (PassData*) zmq_msg_data(&passMsg);
         std::cout << pd->action << " " << pd->Name << " " << pd->Password << std::endl;
         zmq_msg_close(&passMsg);
         char* name = pd->Name;
         char* pass = pd->Password;
-        if(pd->action == 0) { // Хотим зайти
+        if(pd->action == 0) { // trying to enter
             lseek(passfile, 0, SEEK_SET);
             char fname[80];
             char fpass[256];
@@ -147,17 +147,17 @@ void* checkLogins(void* ptr) {
                 }
             }
             PassCheck check;
-            if(corPass == 1) { // Всё хорошо
+            if(corPass == 1) { // OK 
                 check.result = 0;
-            } else if(found == 1) { // Неправильный пароль
+            } else if(found == 1) { // Wrong pass
                 check.result = 1;
             } else {
-                check.result = 2; // Такого аккаунта нет
+                check.result = 2; // No such account exists
             }
             zmq_msg_t reply;
             zmq_msg_init_size(&reply, sizeof(PassCheck));
             memcpy(zmq_msg_data(&reply), &check, sizeof(PassCheck));
-            if(zmq_msg_send(&reply, resSocket, 0) == -1) { // Посылаем ответ
+            if(zmq_msg_send(&reply, resSocket, 0) == -1) { // Sending answer
                 std::perror("Cant send passcheck");
                 return NULL;
             } else {
@@ -182,19 +182,19 @@ void* checkLogins(void* ptr) {
             }
             PassCheck check;
             if(found == 1) {
-                check.result = 1; // Нашли такой аккаунт
+                check.result = 1; // Found account
             } else {
                 check.result = 0;
             }
             if(found == 0) {
                 lseek(passfile, 0, SEEK_END);
-                write(passfile, name, 80); // Если не нашли, то добавляем
+                write(passfile, name, 80); // If acc is not found then we add it
                 write(passfile, pass, 256);
             }
             zmq_msg_t reply;
             zmq_msg_init_size(&reply, sizeof(PassCheck));
             memcpy(zmq_msg_data(&reply), &check, sizeof(PassCheck));
-            if(zmq_msg_send(&reply, resSocket, 0) == -1) { // Отправляем ответ
+            if(zmq_msg_send(&reply, resSocket, 0) == -1) {
                 std::perror("Can't send passcheck");
                 return NULL;
             } else {
@@ -212,8 +212,8 @@ void* chexit(void* ptr) {
         std::cin >> ch;
         if(ch == 'q') {
             std::cout << "PrintExit: " << Print << std::endl;
-            kill(Print, SIGKILL); // Закрываем второй процесс
-            exit(0); // Выходим из программы
+            kill(Print, SIGKILL); // Killing second process
+            exit(0); // EXiting the program
         }
     }
     return NULL;
@@ -236,20 +236,20 @@ void destrCtx() {
 
 int main(int argc, char** argv) {
     pthread_t passCheck;
-    if(pthread_create(&passCheck, 0, checkLogins, NULL)) { // Поток для обработки запросов паролей
+    if(pthread_create(&passCheck, 0, checkLogins, NULL)) { // Thread for password processing
         std::perror("Can't create thread");
         return 4;
     }
     pthread_t sendHist;
-    pthread_create(&sendHist, 0, printHist, NULL); // Поток для обработки запросов истории
+    pthread_create(&sendHist, 0, printHist, NULL); // Thread for history request processing
     context = zmq_ctx_new();
     int fd[2];
-    pipe(fd); // Создаем пайп для общения между процессами
-    if((Print = fork()) == -1) { // Создаем процесс
+    pipe(fd); // Pipe for interaction between processes
+    if((Print = fork()) == -1) { // Creating process
         std::perror("Fork failed");
         return 1;
     }
-    if(Print == 0) { // Процесс передающий сообщения от сервера к клиенту
+    if(Print == 0) { // Process sending messages from server to clients
         pubSocket = zmq_socket(context, ZMQ_PUB);
         zmq_setsockopt(pubSocket, ZMQ_LINGER, &LINGER_VAL, sizeof(LINGER_VAL));
         zmq_bind(pubSocket, "tcp://*:4042");
@@ -260,7 +260,7 @@ int main(int argc, char** argv) {
             read(fd[0], m->Message, 256);
             read(fd[0], m->Address, 80);
             std::cout << "pub addr: " << m->Address << " "  << strlen(m->Address) << std::endl;
-            if(strcmp(m->Address, "gr") != 0) {
+            if(strcmp(m->Address, "gr") != 0) { // If needed we are writing history
                 char histName[160];
                 strcpy(histName, "./.");
                 if(strcmp(m->Name, m->Address) < 0) {
@@ -272,8 +272,8 @@ int main(int argc, char** argv) {
                 }
                 strcat(histName, ".log");
                 int histfile;
-                histfile = open(histName, O_CREAT | O_WRONLY | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH); // Если нужно, записываем историю
-                flock(histfile, LOCK_EX); // Закрываем файл, чтобы не открылся здесь и в отправке истории одновременно
+                histfile = open(histName, O_CREAT | O_WRONLY | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);  
+                flock(histfile, LOCK_EX); 
                 write(histfile, m->Name, 80);
                 write(histfile, m->Message, 256);
                 write(histfile, m->Address, 80);
@@ -283,8 +283,8 @@ int main(int argc, char** argv) {
             zmq_msg_t message;
             zmq_msg_init_size(&message, sizeof(MessageData));
             memcpy(zmq_msg_data(&message), m, sizeof(MessageData));
-            zmq_send(pubSocket, m->Address, strlen(m->Address), ZMQ_SNDMORE); // Отправляем тему
-            int send = zmq_msg_send(&message, pubSocket, 0); // Отправляем сообщение
+            zmq_send(pubSocket, m->Address, strlen(m->Address), ZMQ_SNDMORE); // Sending theme
+            int send = zmq_msg_send(&message, pubSocket, 0); //  Sending message
             if(send == -1) {
                 std::perror("Can't publish message");
                 return 2;
@@ -295,7 +295,7 @@ int main(int argc, char** argv) {
             free(m);
         }
     } else {
-        atexit(destrCtx); // при выходе закрываем сокеты
+        atexit(destrCtx); // Closing sockets at exit
         std::cout << "Print: " << Print << std::endl;
         pthread_t checkExit;
         pthread_create(&checkExit, 0, chexit, NULL);
@@ -305,11 +305,11 @@ int main(int argc, char** argv) {
         while(1) {
             zmq_msg_t message;
             zmq_msg_init(&message);
-            zmq_msg_recv(&message, pullSocket, 0); // Принимаем сообщение
+            zmq_msg_recv(&message, pullSocket, 0); // receiving message
             std::cout << "Message recieved" << std::endl;
             MessageData *m = (MessageData*) zmq_msg_data(&message);
             std::cout << m->Name << " " << m->Message << " " << m->Address << std::endl;
-            write(fd[1], m->Name, 80); // Передаем сообщение в другой процесс
+            write(fd[1], m->Name, 80); // Sending message to the other process
             write(fd[1], m->Message, 256);
             write(fd[1], m->Address, 80);
             zmq_msg_close(&message);
