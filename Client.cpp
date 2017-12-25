@@ -47,7 +47,7 @@ char* Login() {
     std::cout << "0 - sign in, 1 - sign up: ";
     int act;
     std::cin >> act;
-    char Name[80];
+    char* Name = (char*) malloc(80);
     char Password[256];
     std::cout << "Please, enter your name: ";
     std::cin >> Name;
@@ -251,6 +251,7 @@ int main(int argc, char** argv) {
                 }
                 if(c == 17) {
                     std::cout << std::endl;
+                    free(Name);
                     kill(display, SIGKILL);
                     exit(0);
                 }
