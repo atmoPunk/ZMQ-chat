@@ -7,6 +7,7 @@
 #include <string>
 #include <cstring>
 #include <sys/types.h>
+#include <sys/stat.h>
 #include <sys/file.h>
 #include <pthread.h>
 #include <fcntl.h>
@@ -55,7 +56,10 @@ void* printHist(void* ptr) {
         zmq_msg_t histReq;
         zmq_msg_init(&histReq);
         zmq_msg_recv(&histReq, histSocket, 0); // receiving requests
+        std::cout << "Received a HIstReqmessage" << std::endl;
         HistReq* hr = (HistReq*) zmq_msg_data(&histReq);
+        std::cout << hr->Names << std::endl;
+
         char whisp[160];
         strcpy(whisp, hr->Names);
         char filename[160];
@@ -65,12 +69,33 @@ void* printHist(void* ptr) {
         zmq_msg_close(&histReq);
         int histfile;
         histfile = open(filename, O_CREAT | O_RDONLY, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH); // opening file with history
+        if(histfile == -1) {
+            std::perror("Can't open hist file");
+        }
+        struct stat filestat;
         flock(histfile, LOCK_EX); // Locking file
+        fstat(histfile, &filestat);
+        int fsize = filestat.st_size;
         char Name[80];
         char Message[256];
         char Address[80];
         int readHist;
         int lastMsg = 0;
+        if(fsize == 0) {
+            MessageData md;
+            strcpy(md.Name, "server");
+            strcpy(md.Message, "no messages yet");
+            strcpy(md.Address, "gr");
+            zmq_msg_t histRes;
+            zmq_msg_init_size(&histRes, sizeof(MessageData));
+            memcpy(zmq_msg_data(&histRes), &md, sizeof(MessageData));
+            char lWhisp[160];
+            strcpy(lWhisp, " lst"); // Writing to the theme that the message is last one
+            strcat(lWhisp, whisp);
+            zmq_send(histPubSock, lWhisp, strlen(lWhisp), ZMQ_SNDMORE);
+            zmq_msg_send(&histRes, histPubSock, 0); // sending answer
+            zmq_msg_close(&histRes);
+        }
         while((readHist = read(histfile, Name, 80)) != 0) { // Reading all messages
             read(histfile, Message, 256);
             read(histfile, Address, 80);
@@ -260,9 +285,11 @@ int main(int argc, char** argv) {
             read(fd[0], m->Message, 256);
             read(fd[0], m->Address, 80);
             std::cout << "pub addr: " << m->Address << " "  << strlen(m->Address) << std::endl;
+            char histName[160];
+            int isGroupHist = 1;
+            strcpy(histName, "./.");
             if(strcmp(m->Address, "gr") != 0) { // If needed we are writing history
-                char histName[160];
-                strcpy(histName, "./.");
+                isGroupHist = 0;
                 if(strcmp(m->Name, m->Address) < 0) {
                     strcat(histName, m->Name);
                     strcat(histName, m->Address);
@@ -270,16 +297,58 @@ int main(int argc, char** argv) {
                     strcat(histName, m->Address);
                     strcat(histName, m->Name);
                 }
-                strcat(histName, ".log");
-                int histfile;
-                histfile = open(histName, O_CREAT | O_WRONLY | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);  
-                flock(histfile, LOCK_EX); 
-                write(histfile, m->Name, 80);
-                write(histfile, m->Message, 256);
-                write(histfile, m->Address, 80);
-                flock(histfile, LOCK_UN);
-                close(histfile);
+            } else {
+                strcat(histName, "gr");
             }
+            strcat(histName, ".log");
+            int histfile;
+            histfile = open(histName, O_CREAT | O_RDWR | O_APPEND, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH | S_IWOTH);
+            flock(histfile, LOCK_EX);
+            if(isGroupHist) {
+                struct stat filestat;
+                fstat(histfile, &filestat);
+                int fsize = filestat.st_size;
+                if(fsize >= 8320) {
+                    char Nm[80];
+                    char Msg[256];
+                    char Adr[80];
+                    char tmpFileName[160];
+                    strcpy(tmpFileName, histName);
+                    strcat(tmpFileName, "tmp");
+                    int tmpfile;
+                    tmpfile = open(tmpFileName, O_CREAT | O_RDWR, S_IRUSR | S_IWUSR | S_IRGRP | S_IWGRP | S_IROTH, S_IWOTH);
+                    lseek(histfile, 0, SEEK_SET);
+                    read(histfile, Nm, 80);
+                    read(histfile, Msg, 256);
+                    read(histfile, Adr, 80);
+                    for(int i = 0; i < 19; i++) {
+                        read(histfile, Nm, 80);
+                        read(histfile, Msg, 256);
+                        read(histfile, Adr, 80);
+                        write(tmpfile, Nm, 80);
+                        write(tmpfile, Msg, 256);
+                        write(tmpfile, Adr, 80);
+                    }
+                    lseek(histfile, 0, SEEK_SET);
+                    lseek(tmpfile, 0, SEEK_SET);
+                    ftruncate(histfile, 0);
+                    std::cout << "Truncated" << std::endl;
+                    for(int i = 0; i < 19; i++) {
+                        read(tmpfile, Nm, 80);
+                        read(tmpfile, Msg, 256);
+                        read(tmpfile, Adr, 80);
+                        write(histfile, Nm, 80);
+                        write(histfile, Msg, 256);
+                        write(histfile, Adr, 80);
+                    }
+                    ftruncate(tmpfile, 0);
+                }
+            }
+            write(histfile, m->Name, 80);
+            write(histfile, m->Message, 256);
+            write(histfile, m->Address, 80);
+            flock(histfile, LOCK_UN);
+            close(histfile);
             zmq_msg_t message;
             zmq_msg_init_size(&message, sizeof(MessageData));
             memcpy(zmq_msg_data(&message), m, sizeof(MessageData));

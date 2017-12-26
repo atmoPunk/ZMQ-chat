@@ -136,12 +136,16 @@ void getHistory(char* Name, char* Other) {
     void* pushSock = zmq_socket(histCtx, ZMQ_PUSH);
     zmq_connect(pushSock, "tcp://localhost:4044");
     char whisp[160];
-    if(strcmp(Name, Other) < 0) {
-        strcpy(whisp, Name);
-        strcat(whisp, Other);
+    if(Other != NULL) {
+        if(strcmp(Name, Other) < 0) {
+            strcpy(whisp, Name);
+            strcat(whisp, Other);
+        } else {
+            strcpy(whisp, Other);
+            strcat(whisp, Name);
+        }
     } else {
-        strcpy(whisp, Other);
-        strcat(whisp, Name);
+        strcpy(whisp, "gr");
     }
     HistReq hr;
     strcpy(hr.Names, whisp);
@@ -156,7 +160,7 @@ void getHistory(char* Name, char* Other) {
     strcpy(lWhisp, " lst");
     strcat(lWhisp, whisp);
     zmq_connect(subSock, "tcp://localhost:4045");
-    zmq_setsockopt(subSock, ZMQ_SUBSCRIBE, whisp, strlen(whisp)); // Subscribing to history 
+    zmq_setsockopt(subSock, ZMQ_SUBSCRIBE, whisp, strlen(whisp)); // Subscribing to history
     zmq_setsockopt(subSock, ZMQ_SUBSCRIBE, lWhisp, strlen(lWhisp)); // For checking for last message in history
     while(1) {
         zmq_msg_t message;
@@ -182,9 +186,10 @@ int main(int argc, char** argv) {
     printf(ANSI_COLOR_RED "Entered as: %s\n", Name);
     printf(ANSI_COLOR_RESET);
     context = zmq_ctx_new();
-    if(argc == 2) {
+    if(argc == 2)
         getHistory(Name, argv[1]);
-    }
+    else
+        getHistory(Name, NULL);
     pid_t display;
     if((display = fork()) == -1) {
         std::perror("Fork failed");
